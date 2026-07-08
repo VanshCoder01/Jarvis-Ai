@@ -1,0 +1,7 @@
+google-genai
+Flask
+edge-tts
+psutil
+pyautogui
+screen-brightness-control
+wmi

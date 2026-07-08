@@ -1,0 +1,8 @@
+# Holds your API key + everything Jarvis remembers about you — never commit this.
+jarvis_memory.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
