@@ -1,4 +1,6 @@
 # Holds your API key + everything Jarvis remembers about you — never commit this.
+# (Lives in %APPDATA%\Jarvis\ now, not this folder, but keeping this in case
+# of any local fallback.)
 jarvis_memory.json
 
 # Python
@@ -6,3 +8,9 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+
+# Build output (from build_installer.bat)
+build/
+dist/
+installer_output/
+*.spec

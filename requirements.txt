@@ -1,7 +1,20 @@
-google-genai
+# Core — always needed
 Flask
 edge-tts
 psutil
 pyautogui
 screen-brightness-control
 wmi
+
+# AI providers — you only need the one matching your API key.
+# Jarvis auto-detects which provider your key belongs to; the others can
+# be removed from this file if you'd rather not install them.
+google-genai
+openai
+anthropic
+supabase
+
+# Gmail actions (optional — only needed if you connect Gmail, see README)
+google-api-python-client
+google-auth-httplib2
+google-auth-oauthlib

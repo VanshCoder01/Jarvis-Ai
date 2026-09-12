@@ -18,7 +18,7 @@ import memory
 
 
 async def _generate(text: str, voice: str) -> bytes:
-    communicate = edge_tts.Communicate(text, voice)
+    communicate = edge_tts.Communicate(text, voice, rate=config.EDGE_TTS_RATE, pitch=config.EDGE_TTS_PITCH)
     buf = io.BytesIO()
     async for chunk in communicate.stream():
         if chunk["type"] == "audio":
@@ -32,7 +32,11 @@ def speak_to_base64(text: str) -> str:
     text in that case instead of playing audio."""
     if not text:
         return ""
-    voice = config.EDGE_TTS_VOICE_HINDI if memory.get_language() == "hi" else config.EDGE_TTS_VOICE
+    if memory.get_language() == "hi":
+        voice = config.EDGE_TTS_VOICE_HINDI
+    else:
+        # Whatever the user picked in settings, falling back to the default.
+        voice = memory.get_voice() or config.EDGE_TTS_VOICE
     try:
         audio_bytes = asyncio.run(_generate(text, voice))
         return base64.b64encode(audio_bytes).decode("ascii")
