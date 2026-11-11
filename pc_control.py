@@ -344,6 +344,34 @@ def get_system_stats() -> dict:
     return stats
 
 
+def _read_temp_c():
+    """Best-effort CPU temp via WMI. A lot of laptop boards (including plenty
+    of gaming laptops) just don't expose this through Windows' standard
+    thermal-zone API — None here is normal/expected, not a bug."""
+    try:
+        import pythoncom
+        pythoncom.CoInitialize()
+    except Exception:
+        pass
+    try:
+        import wmi
+        w = wmi.WMI(namespace="root\\wmi")
+        zones = w.MSAcpi_ThermalZoneTemperature()
+        if not zones:
+            return None
+        tenths_kelvin = zones[0].CurrentTemperature
+        return round((tenths_kelvin / 10.0) - 273.15, 1)
+    except Exception:
+        return None
+    finally:
+        try:
+            import pythoncom
+            pythoncom.CoUninitialize()
+        except Exception:
+            pass
+
+
+
 def open_code_in_terminal(code: str, language: str) -> str:
     """Saves code to a file and opens a real, visible terminal window
     already sitting in that folder — it does NOT run the code. You read it,

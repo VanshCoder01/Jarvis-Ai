@@ -1,5 +1,57 @@
 # Changelog
 
+## [1.08] — 2026-11-11
+
+### Added
+- **Simulation mode.** Jarvis gets a virtual PC to act on instead of your real
+  one. Every action with a side effect — apps, cursor, typing, volume,
+  brightness, lock / sleep / shutdown, clipboard, folders, Gmail drafts,
+  "forget everything" — lands on an in-memory desktop that the new
+  **Simulation Deck** draws live: windows open and snap, the cursor glides,
+  screenshots flash, shutdown counts down. Toggle it in settings.
+- **No-key start.** The setup screen has a "Try simulation" button. With no API
+  key an offline, rule-based command core answers instead of an LLM, so the
+  app can be tried with zero setup. It also takes over if the model call fails
+  while simulating.
+- **Guided demo.** RUN DEMO walks a scripted set of commands through the
+  virtual PC.
+- **Code mode, with Spark.** A coding agent that works inside one project
+  folder in small visible steps: read, write, list, and run shell commands
+  only after you approve each one. Has its own amber theme and its own mascot,
+  Spark, who reacts to what the agent is doing. (`agent.py` existed but was
+  never connected to the server; it is now.)
+- **Autopilot.** Give a goal and Jarvis operates the real PC like a person:
+  screenshot, decide, move the pointer, click, type, look again. Step-capped,
+  stoppable, and aborts instantly if you push the mouse into the top-left
+  corner. Refuses to run in simulation mode. Needs a vision-capable model.
+- **Voice FX.** The neural voice now runs through a Web Audio chain —
+  CLEAN, COMMS (presence, shimmer, a little room) or DEEP (lower and slower).
+  Four more voices to pick from.
+- **Motion.** Boot sequence, an audio-reactive ring around the orb that follows
+  the actual speech, an ambient particle field that reacts to state and
+  pointer, shockwave on state changes, message and panel transitions. All of
+  it switches off under `prefers-reduced-motion`.
+- **Launch at startup** toggle (per-user Run key, no admin needed).
+- **Model override** in settings / `JARVIS_MODEL`, to try a model before it is
+  in `config.py`'s lists.
+- Quick-command chips, `/` to focus the input, `Esc` to stop, up/down to recall
+  earlier commands.
+- Tests (`python -m unittest discover tests`) for the simulator, the offline
+  core and the autopilot loop.
+
+### Fixed
+- **Attachments were never sent.** The attachment was cleared before the
+  request body was built, so files and images silently never reached the
+  model.
+- **Any website could drive the PC.** The local API accepted requests from any
+  origin, so a page open in your browser could post commands to
+  `127.0.0.1:8731`. Requests with a foreign `Origin` or `Host` are now
+  refused.
+- `/api/settings` no longer returns the stored API keys to the page.
+- Agent names, avatars and colours are escaped before being inserted into the
+  page.
+- Missing favicon (404 on every load).
+
 ## [1.06] — 2026-08-27
 
 ### Fixed

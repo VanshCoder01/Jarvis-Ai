@@ -155,8 +155,9 @@ def next_step(root: str, goal: str, transcript: list) -> dict:
     for turn in transcript:
         contents.append({"role": turn["role"], "parts": [{"text": turn["text"]}]})
 
+    agent_models = getattr(config, "AGENT_MODELS", None)
     data, error = llm.call(system_instruction, contents, AGENT_SCHEMA,
-                            models_by_provider=config.AGENT_MODELS)
+                            models_by_provider=agent_models)
     if data is None:
         raise AgentError(str(error))
     if data.get("tool") not in TOOLS:
