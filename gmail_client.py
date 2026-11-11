@@ -19,7 +19,19 @@ import os
 from email.mime.text import MIMEText
 
 APPDATA_DIR = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "Jarvis")
-CREDENTIALS_PATH = os.path.join(APPDATA_DIR, "gmail_credentials.json")
+
+
+def _get_credentials_path():
+    cand1 = os.path.join(APPDATA_DIR, "gmail_credentials.json")
+    if os.path.exists(cand1):
+        return cand1
+    cand2 = os.path.join(APPDATA_DIR, "gmail_credentials.json.json")
+    if os.path.exists(cand2):
+        return cand2
+    return cand1
+
+
+CREDENTIALS_PATH = _get_credentials_path()
 TOKEN_PATH = os.path.join(APPDATA_DIR, "gmail_token.json")
 
 SCOPES = [
@@ -31,7 +43,8 @@ _service = None
 
 
 def is_configured() -> bool:
-    return os.path.exists(CREDENTIALS_PATH)
+    return os.path.exists(_get_credentials_path())
+
 
 
 def _get_service():
