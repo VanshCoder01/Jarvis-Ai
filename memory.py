@@ -23,7 +23,7 @@ _PATH = os.path.join(_DIR, "jarvis_memory.json")
 
 _DEFAULTS = {"api_key": "", "api_keys": [], "active_key_index": 0, "name": "", "facts": [],
              "language": "en", "profanity": "medium", "theme": "dark", "voice": "",
-             "idle_chatter": True}
+             "idle_chatter": True, "voice_fx": "comms", "simulation": False}
 
 
 def load() -> dict:

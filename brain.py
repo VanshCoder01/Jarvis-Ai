@@ -14,6 +14,7 @@ import llm
 import history
 import memory
 import pc_control as pc
+import simulator
 
 # Rolling short-term memory: the last few exchanges, replayed into every
 # call so Jarvis has real conversational context ("I'm working on a python
@@ -375,6 +376,11 @@ happening: a dry observation, a small nudge, a flash of personality. Always choo
 def idle_line() -> str:
     """One ambient one-liner for when nothing's happened in a while. Not a
     real command — doesn't touch short-term or persisted history."""
+    if not memory.get_api_keys():
+        # No brain to ask — the offline simulation core has a few of its own.
+        import random
+        return random.choice(simulator.IDLE_LINES) if simulator.is_enabled() else ""
+
     known = memory.summary_for_prompt()
     profanity = PROFANITY_GUIDANCE.get(memory.get_profanity(), PROFANITY_GUIDANCE["medium"])
     language = LANGUAGE_GUIDANCE.get(memory.get_language(), LANGUAGE_GUIDANCE["en"])
@@ -404,6 +410,16 @@ def think(user_text: str, image=None) -> dict:
     if known:
         system_instruction += f"\n\n{known}"
 
+    # Simulation mode: actions land on simulator.py's virtual PC instead of
+    # the real one. Tell the model so its replies stay honest about that.
+    simulating = simulator.is_enabled()
+    if simulating:
+        system_instruction += (
+            "\n\nSIMULATION MODE IS ON. Every PC action you choose is carried out on a "
+            "virtual desktop shown to the user, not on their real machine. Choose actions "
+            "exactly as normal, but never claim something really happened on the real PC."
+        )
+
     # Replay recent turns so this is an actual conversation, not a string of
     # amnesiac one-shot commands — "reply" only (plain language), not the
     # raw JSON action structure, so past turns don't confuse the model with
@@ -417,7 +433,15 @@ def think(user_text: str, image=None) -> dict:
     # llm.call handles the rest: which key to use, which provider that key
     # belongs to, and which models to try for it — including falling
     # through to another key if the first one is rate-limited or dead.
-    data, error = llm.call(system_instruction, contents, RESPONSE_SCHEMA, image=image)
+    offline = False
+    if simulating and not memory.get_api_keys():
+        # No key at all: the rule-based offline core stands in for the LLM.
+        data, error, offline = simulator.offline_think(user_text), None, True
+    else:
+        data, error = llm.call(system_instruction, contents, RESPONSE_SCHEMA, image=image)
+        if data is None and simulating:
+            # Keep the simulation usable through a dead key or no internet.
+            data, offline = simulator.offline_think(user_text), True
 
     if data is None:
         return {"action": "chat", "reply": f"My brain just hiccuped: {error}", "image_prompt": "", "code": "", "code_language": ""}
@@ -425,15 +449,21 @@ def think(user_text: str, image=None) -> dict:
     action = data.get("action", "chat")
     reply = data.get("reply", "Done.")
 
+    simulated = simulating and simulator.handles(action)
     handler = DISPATCH.get(action)
     result_text = ""
-    if handler:
+    if simulated:
+        result_text = simulator.run(action, data)
+    elif handler:
         try:
             result_text = handler(data) or ""
         except Exception as e:
             reply += f" Though I hit a snag: {e}"
 
-    if action in _PREFER_FACTUAL_RESULT and result_text:
+    prefer_result = simulator.PREFER_RESULT if simulated else _PREFER_FACTUAL_RESULT
+    if action in prefer_result and result_text:
+        reply = result_text
+    elif offline and result_text and action in ("set_language", "set_profanity"):
         reply = result_text
 
     # forget_everything already wiped history inside its handler above —
@@ -449,8 +479,10 @@ def think(user_text: str, image=None) -> dict:
         "params": {k: v for k, v in data.items()
                    if k not in ("action", "reply", "code") and v not in ("", None, [])},
         "result": result_text or "(no direct output)",
-        "provider": llm.detect_provider(config.API_KEY),
+        "provider": "offline simulation core" if offline else (llm.describe_last_call() or llm.detect_provider(config.API_KEY)),
+        "model": "" if offline else llm.last_call.get("model", ""),
         "history_used": len(_history),
+        "simulated": simulated,
     }
 
     return {

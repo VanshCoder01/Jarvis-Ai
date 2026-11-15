@@ -13,6 +13,12 @@ for /f "delims=" %%i in ('where pythonw 2^>nul') do set PYW=%%i
 if not defined PYW (
     for /f "delims=" %%i in ('py -c "import sys,os;print(os.path.join(os.path.dirname(sys.executable),'pythonw.exe'))" 2^>nul') do set PYW=%%i
 )
+if not defined PYW (
+    if exist "%LOCALAPPDATA%\Programs\Python\Python314\pythonw.exe" set "PYW=%LOCALAPPDATA%\Programs\Python\Python314\pythonw.exe"
+)
+if not defined PYW (
+    if exist "%LOCALAPPDATA%\Programs\Python\Python312\pythonw.exe" set "PYW=%LOCALAPPDATA%\Programs\Python\Python312\pythonw.exe"
+)
 
 if not defined PYW (
     echo Python not found. Run build_installer.bat first - it installs Python for you.
@@ -24,7 +30,8 @@ echo [OK] Found: %PYW%
 REM Install dependencies if they're missing
 echo.
 echo Making sure dependencies are installed...
-python -m pip install -r requirements.txt --quiet
+set "PY_CLI=%PYW:pythonw.exe=python.exe%"
+"%PY_CLI%" -m pip install -r requirements.txt --quiet
 echo [OK] Dependencies ready
 
 REM Build the shortcut with PowerShell

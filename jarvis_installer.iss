@@ -12,7 +12,7 @@
 ; ============================================================
 
 #define AppName        "J.A.R.V.I.S"
-#define AppVersion     "1.06"
+#define AppVersion     "1.08"
 #define AppPublisher   "Vansh"
 #define AppURL         "https://github.com/VanshCoder01/Jarvis-Ai"
 #define AppExeName     "Jarvis.exe"
@@ -84,7 +84,13 @@ Source: "history.py";        DestDir: "{app}"; Flags: ignoreversion
 Source: "pc_control.py";     DestDir: "{app}"; Flags: ignoreversion
 Source: "tts.py";            DestDir: "{app}"; Flags: ignoreversion
 Source: "image_gen.py";      DestDir: "{app}"; Flags: ignoreversion
-Source: "config.py";         DestDir: "{app}"; Flags: ignoreversion onlyifdoesntexist
+Source: "agent.py";          DestDir: "{app}"; Flags: ignoreversion
+Source: "agents.py";         DestDir: "{app}"; Flags: ignoreversion
+Source: "autopilot.py";      DestDir: "{app}"; Flags: ignoreversion
+Source: "simulator.py";      DestDir: "{app}"; Flags: ignoreversion
+Source: "startup.py";        DestDir: "{app}"; Flags: ignoreversion
+Source: "gmail_client.py";   DestDir: "{app}"; Flags: ignoreversion
+Source: "config.py";         DestDir: "{app}"; Flags: ignoreversion
 Source: "index.html";        DestDir: "{app}"; Flags: ignoreversion
 Source: "requirements.txt";  DestDir: "{app}"; Flags: ignoreversion
 Source: "jarvis.ico";        DestDir: "{app}"; Flags: ignoreversion

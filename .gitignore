@@ -1,7 +1,11 @@
-# Holds your API key + everything Jarvis remembers about you — never commit this.
-# (Lives in %APPDATA%\Jarvis\ now, not this folder, but keeping this in case
-# of any local fallback.)
+# Holds your API keys + everything Jarvis remembers about you -- never commit this.
+# (Lives in %APPDATA%\Jarvis\ now, not this folder; listed in case of a local fallback.)
 jarvis_memory.json
+jarvis_history.json
+jarvis_sessions.json
+gmail_credentials.json
+gmail_token.json
+.env
 
 # Python
 __pycache__/
@@ -14,3 +18,12 @@ build/
 dist/
 installer_output/
 *.spec
+*.exe
+
+# Editor / tooling
+.idea/
+.vscode/
+.playwright-mcp/
+
+# Old local copy of the project, kept on disk but not part of the repo
+jarvis_1/

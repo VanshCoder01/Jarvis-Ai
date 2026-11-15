@@ -13,6 +13,12 @@ REM ---------- 1. Find Python ----------
 set PY=
 python --version >nul 2>&1 && set PY=python
 if not defined PY ( py --version >nul 2>&1 && set PY=py )
+if not defined PY (
+    if exist "%LOCALAPPDATA%\Programs\Python\Python314\python.exe" set "PY=%LOCALAPPDATA%\Programs\Python\Python314\python.exe"
+)
+if not defined PY (
+    if exist "%LOCALAPPDATA%\Programs\Python\Python312\python.exe" set "PY=%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
+)
 
 if not defined PY (
     echo Python isn't installed. Trying to install it automatically...
