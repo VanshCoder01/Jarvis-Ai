@@ -3,7 +3,7 @@ setlocal
 cd /d "%~dp0"
 
 echo ============================================================
-echo   Building JarvisSetup-v1.06.exe
+echo   Building JarvisSetup-v1.08.exe
 echo   A proper Windows installer wizard - language select,
 echo   licence, install location, shortcuts, uninstaller.
 echo ============================================================
@@ -37,7 +37,7 @@ if not exist %ISCC% (
 echo Compiling...
 %ISCC% jarvis_installer.iss
 
-if not exist "installer_output\JarvisSetup-v1.06.exe" (
+if not exist "installer_output\JarvisSetup-v1.08.exe" (
     echo.
     echo Build failed - scroll up for the error.
     pause
@@ -46,7 +46,7 @@ if not exist "installer_output\JarvisSetup-v1.06.exe" (
 
 echo.
 echo ============================================================
-echo   DONE:  installer_output\JarvisSetup-v1.06.exe
+echo   DONE:  installer_output\JarvisSetup-v1.08.exe
 echo.
 echo   That's the single file to upload to GitHub Releases.
 echo   Running it gives the full wizard with language select.
