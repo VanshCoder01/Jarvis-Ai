@@ -17,7 +17,8 @@ venv/
 build/
 dist/
 installer_output/
-*.spec
+.build-venv/
+installer/version_info.txt
 *.exe
 
 # Editor / tooling

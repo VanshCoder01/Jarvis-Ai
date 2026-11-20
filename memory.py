@@ -13,8 +13,9 @@ doesn't even reliably exist as a stable path at all (the exe unpacks itself
 into a fresh temp folder every launch). AppData is always per-user writable
 and always persists.
 """
-import json
 import os
+
+import storage
 
 _APPDATA = os.environ.get("APPDATA") or os.path.expanduser("~")
 _DIR = os.path.join(_APPDATA, "Jarvis")
@@ -23,25 +24,22 @@ _PATH = os.path.join(_DIR, "jarvis_memory.json")
 
 _DEFAULTS = {"api_key": "", "api_keys": [], "active_key_index": 0, "name": "", "facts": [],
              "language": "en", "profanity": "medium", "theme": "dark", "voice": "",
-             "idle_chatter": True, "voice_fx": "comms", "simulation": False}
+             "idle_chatter": True, "voice_fx": "comms", "simulation": False,
+             "elevenlabs_key": ""}
 
 
 def load() -> dict:
-    if os.path.exists(_PATH):
-        try:
-            with open(_PATH, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            for key, default in _DEFAULTS.items():
-                data.setdefault(key, default)
-            # Migrate anyone upgrading from the single-key version: their
-            # existing api_key becomes the first entry in the new list, so
-            # nobody has to re-enter a key they already set up.
-            if data.get("api_key") and not data.get("api_keys"):
-                data["api_keys"] = [data["api_key"]]
-            return data
-        except Exception:
-            pass  # corrupt/unreadable file — fall back to a clean slate
-    return dict(_DEFAULTS)
+    data = storage.read_json(_PATH, lambda: dict(_DEFAULTS))
+    if not isinstance(data, dict):
+        return dict(_DEFAULTS)
+    for key, default in _DEFAULTS.items():
+        data.setdefault(key, default)
+    # Migrate anyone upgrading from the single-key version: their
+    # existing api_key becomes the first entry in the new list, so
+    # nobody has to re-enter a key they already set up.
+    if data.get("api_key") and not data.get("api_keys"):
+        data["api_keys"] = [data["api_key"]]
+    return data
 
 
 def get_api_keys() -> list:
@@ -61,12 +59,13 @@ def set_api_keys(keys: list):
         k = (k or "").strip()
         if k and k not in cleaned:  # dedupe, keep order
             cleaned.append(k)
-    data = load()
-    data["api_keys"] = cleaned
-    data["api_key"] = cleaned[0] if cleaned else ""  # keep the old field in sync
-    data["active_key_index"] = 0
-    save(data)
-    return cleaned
+    with storage.lock():
+        data = load()
+        data["api_keys"] = cleaned
+        data["api_key"] = cleaned[0] if cleaned else ""  # keep the old field in sync
+        data["active_key_index"] = 0
+        save(data)
+        return cleaned
 
 
 def get_active_key_index() -> int:
@@ -81,32 +80,55 @@ def get_active_key_index() -> int:
 def set_active_key_index(index: int):
     """Remembers which key last worked, so the next request starts there
     instead of re-trying keys already known to be dead."""
-    data = load()
-    data["active_key_index"] = index
-    keys = get_api_keys()
-    if 0 <= index < len(keys):
-        data["api_key"] = keys[index]  # keep the legacy field pointing at the live key
-    save(data)
+    with storage.lock():
+        data = load()
+        data["active_key_index"] = index
+        keys = get_api_keys()
+        if 0 <= index < len(keys):
+            data["api_key"] = keys[index]  # keep the legacy field pointing at the live key
+        save(data)
 
 
 def save(data: dict):
-    with open(_PATH, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
+    storage.write_json(_PATH, data)
+
+
+def update(**fields):
+    """Sets fields without racing another thread's save (a plain
+    load()-edit-save() from two requests at once can drop one of them)."""
+    with storage.lock():
+        data = load()
+        data.update(fields)
+        save(data)
+        return data
 
 
 def remember(fact: str) -> str:
     fact = (fact or "").strip()
     if not fact:
         return "There was nothing there to remember."
-    data = load()
-    if fact not in data["facts"]:
-        data["facts"].append(fact)
-        save(data)
-    return f"Noted: {fact}"
+    with storage.lock():
+        data = load()
+        if fact not in data["facts"]:
+            data["facts"].append(fact)
+            save(data)
+        return f"Noted: {fact}"
+
+
+# What "forget everything about me" keeps: the keys Jarvis needs to think and
+# speak, and how the user set it up. It forgets the person, not its own wiring.
+_KEEP_ON_FORGET = ("name", "api_key", "api_keys", "active_key_index", "elevenlabs_key", "language",
+                   "profanity", "theme", "voice", "idle_chatter", "voice_fx", "simulation",
+                   "model_override")
 
 
 def forget_all() -> str:
-    save(dict(_DEFAULTS))
+    with storage.lock():
+        old = load()
+        fresh = dict(_DEFAULTS)
+        fresh["facts"] = []
+        fresh.update({k: old[k] for k in _KEEP_ON_FORGET if k in old})
+        save(fresh)
     return "Wiped everything I knew about you. Fresh start."
 
 
@@ -115,10 +137,11 @@ def get_voice() -> str:
 
 
 def set_voice(voice_id: str) -> str:
-    data = load()
-    data["voice"] = (voice_id or "").strip()
-    save(data)
-    return "Voice updated."
+    with storage.lock():
+        data = load()
+        data["voice"] = (voice_id or "").strip()
+        save(data)
+        return "Voice updated."
 
 
 def get_language() -> str:
@@ -129,10 +152,11 @@ def set_language(lang: str) -> str:
     lang = (lang or "").strip().lower()
     if lang not in ("en", "hi"):
         return "I only know English and Hindi right now."
-    data = load()
-    data["language"] = lang
-    save(data)
-    return "Switched to Hindi." if lang == "hi" else "Switched to English."
+    with storage.lock():
+        data = load()
+        data["language"] = lang
+        save(data)
+        return "Switched to Hindi." if lang == "hi" else "Switched to English."
 
 
 def get_profanity() -> str:
@@ -143,10 +167,11 @@ def set_profanity(level: str) -> str:
     level = (level or "").strip().lower()
     if level not in ("off", "mild", "medium", "full"):
         return "That's not a profanity level I recognize."
-    data = load()
-    data["profanity"] = level
-    save(data)
-    return f"Profanity level set to {level}."
+    with storage.lock():
+        data = load()
+        data["profanity"] = level
+        save(data)
+        return f"Profanity level set to {level}."
 
 
 def get_idle_chatter() -> bool:
@@ -154,10 +179,11 @@ def get_idle_chatter() -> bool:
 
 
 def set_idle_chatter(enabled: bool) -> str:
-    data = load()
-    data["idle_chatter"] = bool(enabled)
-    save(data)
-    return "Idle chatter enabled." if enabled else "Idle chatter disabled."
+    with storage.lock():
+        data = load()
+        data["idle_chatter"] = bool(enabled)
+        save(data)
+        return "Idle chatter enabled." if enabled else "Idle chatter disabled."
 
 
 def summary_for_prompt() -> str:

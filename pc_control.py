@@ -5,7 +5,10 @@ Targets Windows (this is built for your ROG Strix). A few functions
 (lock/sleep/shutdown, volume media-keys) are Windows-specific by design.
 """
 import os
+import re
+import shutil
 import subprocess
+import urllib.parse
 from datetime import datetime
 
 import pyautogui
@@ -14,6 +17,44 @@ import config
 
 pyautogui.FAILSAFE = True  # slam the mouse into a screen corner to abort a runaway action
 SCREEN_W, SCREEN_H = pyautogui.size()
+
+
+# ---------- Launching ----------
+# Names and URLs reach this file from the model, and the model reads email
+# bodies and the screen -- text an attacker can write. So nothing here is
+# ever spliced into a shell command line: os.startfile() goes straight to
+# ShellExecute (the same thing `start` uses, so App Paths names like
+# "chrome.exe" still resolve) and never interprets & | ^ " or %.
+def _launch(target: str):
+    try:
+        os.startfile(target)
+    except FileNotFoundError:
+        # `start foo` also tried foo.exe; keep that behaviour for bare names.
+        if "://" in target or os.path.splitext(target)[1]:
+            raise
+        os.startfile(target + ".exe")
+
+
+def _clean_url(url: str):
+    """Returns a safe http(s) URL, or None. Only web links -- no file:,
+    javascript:, ms-settings: or other protocol handlers a crafted string
+    could use to start something that isn't a browser."""
+    url = (url or "").strip()
+    if not url or any(ord(c) < 32 or c.isspace() for c in url):
+        return None
+    if "://" not in url:
+        # "javascript:x" / "ms-settings:y" are other schemes, not hostnames;
+        # "localhost:3000" (a port) is fine.
+        if re.match(r"[A-Za-z][A-Za-z0-9+.-]*:(?!\d)", url):
+            return None
+        url = "https://" + url
+    try:
+        parts = urllib.parse.urlsplit(url)
+    except ValueError:
+        return None
+    if parts.scheme.lower() not in ("http", "https") or not parts.netloc:
+        return None
+    return url
 
 
 # ---------- Apps ----------
@@ -31,7 +72,7 @@ def open_app(name: str) -> str:
     target = config.APP_PATHS.get(key)
     if target:
         try:
-            os.system(f'start "" "{target}"')
+            _launch(target)
             return f"Opened {name}."
         except Exception as e:
             return f"Couldn't open {name} ({e})."
@@ -64,8 +105,10 @@ def open_app(name: str) -> str:
     #    this automatically), even without a curated entry or a Start Menu
     #    shortcut turning up.
     try:
-        os.system(f'start "" "{name}"')
+        _launch(name.strip())
         return f"Tried opening {name} \u2014 let me know if that didn't actually work."
+    except FileNotFoundError:
+        return f"Couldn't find an app called {name} on this PC."
     except Exception as e:
         return f"Couldn't find or open {name} ({e})."
 
@@ -134,13 +177,13 @@ def close_app(name: str) -> str:
 
 
 def open_url(url: str) -> str:
-    url = (url or "").strip()
-    if not url:
+    if not (url or "").strip():
         return "Didn't catch what site you wanted."
-    if not url.startswith(("http://", "https://")):
-        url = "https://" + url
+    raw, url = url, _clean_url(url)
+    if not url:
+        return f"That doesn't look like a web address I should open: {raw.strip()[:80]}"
     try:
-        os.system(f'start "" "{url}"')
+        _launch(url)
         return f"Opening {url}."
     except Exception as e:
         return f"Couldn't open that ({e})."
@@ -154,10 +197,9 @@ def play_on_youtube(query: str) -> str:
     query = (query or "").strip()
     if not query:
         return "Didn't catch what you wanted to hear."
-    import urllib.parse
     search_url = "https://www.youtube.com/results?search_query=" + urllib.parse.quote(query)
     try:
-        os.system(f'start "" "{search_url}"')
+        _launch(search_url)
         return f"Pulled up YouTube results for {query}."
     except Exception as e:
         return f"Couldn't get to YouTube ({e})."
@@ -344,32 +386,53 @@ def get_system_stats() -> dict:
     return stats
 
 
+_temp_retry_at = 0.0
+
+
+def _query_thermal_zone():
+    import gc
+    import wmi
+    try:
+        zones = wmi.WMI(namespace=r"root\wmi").MSAcpi_ThermalZoneTemperature()
+        return round((zones[0].CurrentTemperature / 10.0) - 273.15, 1) if zones else None
+    finally:
+        zones = None
+        gc.collect()
+
+
 def _read_temp_c():
     """Best-effort CPU temp via WMI. A lot of laptop boards (including plenty
     of gaming laptops) just don't expose this through Windows' standard
-    thermal-zone API — None here is normal/expected, not a bug."""
+    thermal-zone API — None here is normal/expected, not a bug.
+
+    The UI polls stats every second, so a board without a sensor is only
+    re-checked every few minutes instead of opening a WMI connection each
+    time. The WMI objects are released before CoUninitialize -- releasing
+    them after it is what filled the log with "Win32 exception occurred
+    releasing IUnknown"."""
+    global _temp_retry_at
+    import time
+    if time.monotonic() < _temp_retry_at:
+        return None
     try:
         import pythoncom
         pythoncom.CoInitialize()
     except Exception:
-        pass
+        pythoncom = None
     try:
-        import wmi
-        w = wmi.WMI(namespace="root\\wmi")
-        zones = w.MSAcpi_ThermalZoneTemperature()
-        if not zones:
-            return None
-        tenths_kelvin = zones[0].CurrentTemperature
-        return round((tenths_kelvin / 10.0) - 273.15, 1)
+        result = _query_thermal_zone()
     except Exception:
-        return None
-    finally:
+        result = None
+    # every COM object from the query is gone by now (it lived in the
+    # helper's frame), so uninitialising can't strand one
+    if pythoncom is not None:
         try:
-            import pythoncom
             pythoncom.CoUninitialize()
         except Exception:
             pass
-
+    if result is None:
+        _temp_retry_at = time.monotonic() + 300
+    return result
 
 
 def open_code_in_terminal(code: str, language: str) -> str:
@@ -590,9 +653,19 @@ def check_tool(name: str) -> str:
     if not key:
         return "Which tool?"
     check = _TOOL_CHECKS.get(key)
-    cmd = check[0] if check else f"{key} --version"
+    if check:
+        argv = check[0].split()
+    elif re.fullmatch(r"[a-z0-9][a-z0-9._+-]{0,40}", key):
+        argv = [key, "--version"]
+    else:
+        return f"'{name}' isn't a tool name I can check."
+    # Resolve the program ourselves (npm is npm.cmd, etc.) and run it with
+    # an argument list -- no shell, so the name can't smuggle in a command.
+    exe = shutil.which(argv[0])
+    if not exe:
+        return f"{name} isn't installed. Want me to set it up?"
     try:
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
+        result = subprocess.run([exe] + argv[1:], capture_output=True, text=True, timeout=10)
         output = ((result.stdout or "") + (result.stderr or "")).strip().splitlines()
         if result.returncode == 0 and output:
             return f"{name} is installed: {output[0]}"

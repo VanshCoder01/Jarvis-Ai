@@ -8,9 +8,22 @@ were last talking about instead of opening blank every time.
 
 Lives alongside jarvis_memory.json in %APPDATA%\\Jarvis\\.
 """
-import json
 import os
 from datetime import datetime
+
+import storage
+
+
+def _locked(fn):
+    """Each public read-modify-write runs whole under the storage lock, so
+    two requests saving at once can't drop each other's entries."""
+    import functools
+
+    @functools.wraps(fn)
+    def wrapper(*a, **kw):
+        with storage.lock():
+            return fn(*a, **kw)
+    return wrapper
 
 _APPDATA = os.environ.get("APPDATA") or os.path.expanduser("~")
 _DIR = os.path.join(_APPDATA, "Jarvis")
@@ -22,24 +35,18 @@ MAX_ENTRIES = 500
 
 
 def load() -> list:
-    if not os.path.exists(_PATH):
-        return []
-    try:
-        with open(_PATH, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data if isinstance(data, list) else []
-    except Exception:
-        return []  # corrupt file shouldn't take the whole app down
+    data = storage.read_json(_PATH, list)
+    return data if isinstance(data, list) else []
 
 
 def _save(entries: list):
     try:
-        with open(_PATH, "w", encoding="utf-8") as f:
-            json.dump(entries[-MAX_ENTRIES:], f, indent=2)
+        storage.write_json(_PATH, entries[-MAX_ENTRIES:])
     except Exception:
         pass  # never let a failed write break a conversation
 
 
+@_locked
 def add(user_text: str, reply: str, action: str = ""):
     entries = load()
     entries.append({
@@ -63,6 +70,7 @@ def search(query: str, limit: int = 20) -> list:
     return hits[-limit:]
 
 
+@_locked
 def clear() -> str:
     _save([])
     return "Conversation history wiped."
@@ -73,22 +81,17 @@ _SESS_PATH = os.path.join(_DIR, "jarvis_sessions.json")
 
 
 def _load_sessions() -> dict:
-    if not os.path.exists(_SESS_PATH):
+    data = storage.read_json(_SESS_PATH, lambda: {"active": "", "sessions": []})
+    if not isinstance(data, dict):
         return {"active": "", "sessions": []}
-    try:
-        with open(_SESS_PATH, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        data.setdefault("active", "")
-        data.setdefault("sessions", [])
-        return data
-    except Exception:
-        return {"active": "", "sessions": []}
+    data.setdefault("active", "")
+    data.setdefault("sessions", [])
+    return data
 
 
 def _save_sessions(data: dict):
     try:
-        with open(_SESS_PATH, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
+        storage.write_json(_SESS_PATH, data)
     except Exception:
         pass
 
@@ -102,6 +105,7 @@ def list_sessions() -> dict:
     return {"active": data.get("active", ""), "sessions": sess}
 
 
+@_locked
 def new_session(title: str = "") -> str:
     import uuid
     data = _load_sessions()
@@ -126,6 +130,7 @@ def active_session_id() -> str:
     return data["active"]
 
 
+@_locked
 def set_active(sid: str) -> bool:
     data = _load_sessions()
     if not any(s["id"] == sid for s in data["sessions"]):
@@ -135,6 +140,7 @@ def set_active(sid: str) -> bool:
     return True
 
 
+@_locked
 def toggle_pin(sid: str) -> bool:
     data = _load_sessions()
     for s in data["sessions"]:
@@ -145,6 +151,7 @@ def toggle_pin(sid: str) -> bool:
     return False
 
 
+@_locked
 def delete_session(sid: str) -> bool:
     data = _load_sessions()
     before = len(data["sessions"])
@@ -155,6 +162,7 @@ def delete_session(sid: str) -> bool:
     return len(data["sessions"]) < before
 
 
+@_locked
 def add_to_session(user_text: str, reply: str):
     """Appends to the active session and auto-titles it from the first
     thing actually said, so the list isn't a wall of 'New session'."""

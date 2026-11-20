@@ -23,8 +23,9 @@ SOFTWARE.
 
 NOTE ON THIRD-PARTY SERVICES
 
-This software calls external AI APIs (Google Gemini, OpenAI, or Anthropic)
-using an API key you supply. Your key is stored locally on your own machine
+This software calls external AI and voice APIs (Google Gemini, OpenAI,
+Anthropic, OpenRouter, ElevenLabs, Microsoft Edge text-to-speech) using keys you
+supply, or runs models locally through Ollama. Your key is stored locally on your own machine
 and is never transmitted anywhere except to the provider it belongs to. Usage
 of those services is governed by their own terms, and any costs incurred are
 your own.

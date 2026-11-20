@@ -7,6 +7,7 @@ action + a sassy line, runs the action locally via pc_control, and returns
 the line to be spoken.
 """
 from collections import deque
+from datetime import datetime
 
 import config
 import gmail_client
@@ -22,25 +23,35 @@ import simulator
 # command as a fresh, isolated request. Capped so prompts don't keep
 # growing forever through a long session. This is separate from memory.py's
 # permanent facts — this resets when the app restarts; that doesn't.
-_history = deque(maxlen=6)
+_history = deque(maxlen=16)   # (user_text, reply, action, result) -- see think()
 
 
 def _clear_history():
     _history.clear()
 
 
+def load_session(entries):
+    """Picks a conversation back up: seeds short-term memory from a saved
+    session, so returning to an old chat (or restarting Jarvis) doesn't
+    leave it staring blankly at messages it can see on screen."""
+    _history.clear()
+    for e in (entries or [])[-_history.maxlen:]:
+        if e.get("user") or e.get("jarvis"):
+            _history.append((e.get("user", ""), e.get("jarvis", ""), "", ""))
+
+
 SYSTEM_PROMPT = """You are JARVIS — a hyper-competent AI that runs this user's Windows PC.
 
 Personality: you are JARVIS. Composed, precise, unflappably British in register.
-You address Vansh as "sir" naturally — not in every sentence, but the way a
+You address the user as "sir" naturally (or by name, or "ma'am", if they've said they prefer it) — not in every sentence, but the way a
 capable aide does: at the start of a report, when confirming an instruction,
-when delivering something he won't like. "Right away, sir." "I'd advise against
+when delivering something they won't like. "Right away, sir." "I'd advise against
 it, sir." "Already done, sir."
 
 You are dry rather than loud. Understated wit, delivered flat. You never gush,
 never pad, never perform enthusiasm. When something is trivially easy for you,
 a touch of quiet superiority is entirely in character — but it is subtle, and
-it is never at Vansh's expense. He built you; you are on his side.
+it is never at the user's expense. You are firmly on their side.
 
 When you disagree, say so plainly and briefly, then do as asked anyway unless
 it's genuinely destructive. "That will overwrite three hours of work, sir.
@@ -48,6 +59,33 @@ Proceeding." Competence first, commentary second.
 
 Never break character to explain yourself. Never announce your personality.
 Never use emojis or stage directions.
+
+HOW TO UNDERSTAND PEOPLE - this matters more than anything else here:
+- Most of what you receive is SPEECH, transcribed by a browser's speech recogniser. Expect
+  misheard words, missing punctuation, homophones and half-sentences. Work out what the person
+  most plausibly MEANT, the way a sharp human assistant would: "open crome" is Chrome,
+  "play blinding lights by the weekend" is The Weeknd, "set brightness to fourty" is 40,
+  "jarvis jarvis open note pad" is Notepad. Never repeat a garbled transcript back at them.
+- People speak indirectly. Map the need to the action: "it's way too bright" -> lower the
+  brightness; "I can't hear anything" -> volume up (or unmute); "I'm heading out" -> offer
+  to lock the PC; "ugh, this song" -> next track; "what's eating my RAM" -> get_stats.
+- Use the conversation. "it", "that", "the other one", "again", "louder", "no, the first one",
+  "close it" all point at earlier turns - resolve them from the history, including the
+  bracketed notes of what you actually did. Those notes are for you only; never write that
+  bracket format in your own reply.
+- Corrections are normal: "no, I said Spotify" means fix it and do the right thing, with at
+  most a few words of acknowledgement - no grovelling.
+- Slang, Hinglish and mixed languages are fine: "yaar thoda volume badha do" is volume up.
+  Answer in the language setting below, whatever language they used.
+- Read the mood. Frustrated, rushed or tired people get a shorter, calmer reply; good news
+  gets genuine warmth.
+- When a request is truly ambiguous AND guessing wrong would cost something (shutting down,
+  closing their work, drafting mail to the wrong person), ask one short question using
+  "chat". When being wrong is cheap, make the sensible choice and say what you did.
+- If they ask for several things at once, do the most important one now and offer the rest
+  ("Chrome's open. Shall I put the music on as well?").
+- Talk like a person, not a manual: contractions, varied phrasing, no stock openings repeated
+  turn after turn, no "As an AI". Replies are read aloud, so they must sound natural spoken.
 
 Match your reply length to what's actually needed. A command like "open chrome" gets a
 quick one-line confirmation. A real question \u2014 something to explain, help with homework,
@@ -400,6 +438,17 @@ def idle_line() -> str:
     return (data.get("reply") or "").strip()
 
 
+def _brief(result_text, data) -> str:
+    """What a history note says about an action: its result, or the main
+    parameter if it produced no output."""
+    if result_text:
+        return " ".join(str(result_text).split())
+    for k in ("app", "url", "query", "text", "level", "direction", "key", "zone"):
+        if data.get(k) not in ("", None):
+            return f"{k}={data[k]}"
+    return ""
+
+
 def think(user_text: str, image=None) -> dict:
     known = memory.summary_for_prompt()
     profanity = PROFANITY_GUIDANCE.get(memory.get_profanity(), PROFANITY_GUIDANCE["medium"])
@@ -409,6 +458,11 @@ def think(user_text: str, image=None) -> dict:
     system_instruction = f"{SYSTEM_PROMPT}\n\nMode: {mode}\n\nSwearing: {profanity}\n\nLanguage: {language}"
     if known:
         system_instruction += f"\n\n{known}"
+
+    # So "tonight", "in ten minutes" and "good morning" land right.
+    system_instruction += f"\n\nRight now it is {datetime.now().strftime('%A %d %B %Y, %I:%M %p')} on the user's PC."
+    if image is not None:
+        system_instruction += "\nThe user attached an image with this message; look at it before answering."
 
     # Simulation mode: actions land on simulator.py's virtual PC instead of
     # the real one. Tell the model so its replies stay honest about that.
@@ -424,10 +478,16 @@ def think(user_text: str, image=None) -> dict:
     # amnesiac one-shot commands — "reply" only (plain language), not the
     # raw JSON action structure, so past turns don't confuse the model with
     # its own scaffolding.
+    # Each past model turn also carries a short note of what was actually
+    # done and what came back, so follow-ups ("close it", "louder", "the
+    # other one") resolve against real events, not just the spoken reply.
     contents = []
-    for past_user, past_reply in _history:
+    for past_user, past_reply, past_action, past_result in _history:
+        note = ""
+        if past_action and past_action != "chat":
+            note = f" [did: {past_action}" + (f" -> {past_result[:160]}" if past_result else "") + "]"
         contents.append({"role": "user", "parts": [{"text": past_user}]})
-        contents.append({"role": "model", "parts": [{"text": past_reply}]})
+        contents.append({"role": "model", "parts": [{"text": past_reply + note}]})
     contents.append({"role": "user", "parts": [{"text": user_text}]})
 
     # llm.call handles the rest: which key to use, which provider that key
@@ -470,7 +530,7 @@ def think(user_text: str, image=None) -> dict:
     # appending this exchange here would immediately put one entry right
     # back, defeating the entire point of a clean slate.
     if action != "forget_everything":
-        _history.append((user_text, reply))
+        _history.append((user_text, reply, action, _brief(result_text, data)))
         history.add(user_text, reply, action)  # persists across restarts
         history.add_to_session(user_text, reply)
 

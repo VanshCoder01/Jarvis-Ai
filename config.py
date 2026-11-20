@@ -4,7 +4,7 @@ once in the web UI on first run and saved to jarvis_memory.json (see memory.py).
 """
 import os
 
-VERSION = "1.08"
+VERSION = "1.09"
 
 # Works with a Gemini, OpenAI, or Anthropic key — llm.py auto-detects which
 # one you gave it from the key's format and routes accordingly. Each
@@ -18,14 +18,6 @@ PROVIDER_MODELS = {
     "openrouter": ["meta-llama/llama-3.3-70b-instruct:free",
                    "google/gemini-2.0-flash-exp:free",
                    "deepseek/deepseek-chat:free"],
-}
-# Stronger models for code-agent mode (agent.py)
-AGENT_MODELS = {
-    "gemini": ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-2.5-flash"],
-    "openai": ["gpt-4o", "gpt-4o-mini"],
-    "anthropic": ["claude-sonnet-5", "claude-haiku-4-5-20251001"],
-    "openrouter": ["meta-llama/llama-3.3-70b-instruct:free"],
-    "ollama": ["qwen2.5:14b", "qwen2.5:7b", "llama3.1:8b"],
 }
 # Force one specific model to be tried first, whatever the provider — e.g. a
 # brand-new model your key can reach before it's been added to the lists above.
@@ -74,15 +66,30 @@ EDGE_TTS_VOICE = "en-GB-RyanNeural"
 
 # Selectable from the settings panel. Labels are what the UI shows.
 VOICE_OPTIONS = [
-    {"id": "en-GB-RyanNeural",    "label": "RYAN",   "note": "British male \u2014 calm, precise"},
-    {"id": "en-GB-ThomasNeural",  "label": "THOMAS", "note": "British male \u2014 warmer"},
-    {"id": "en-US-GuyNeural",     "label": "GUY",    "note": "American male \u2014 deeper"},
-    {"id": "en-AU-WilliamNeural", "label": "WILL",   "note": "Australian male \u2014 dry"},
-    {"id": "en-US-AndrewMultilingualNeural", "label": "ANDREW", "note": "American male \u2014 warm, very natural"},
-    {"id": "en-US-BrianMultilingualNeural",  "label": "BRIAN",  "note": "American male \u2014 easy, conversational"},
-    {"id": "en-IE-ConnorNeural",  "label": "CONNOR", "note": "Irish male \u2014 soft-spoken"},
-    {"id": "en-GB-SoniaNeural",   "label": "SONIA",  "note": "British female \u2014 crisp, composed"},
+    # --- free: Microsoft neural voices, no key ---
+    {"id": "en-GB-RyanNeural",    "label": "RYAN",   "engine": "edge", "note": "British male — calm, precise"},
+    {"id": "en-GB-ThomasNeural",  "label": "THOMAS", "engine": "edge", "note": "British male — warmer"},
+    {"id": "en-US-AndrewMultilingualNeural", "label": "ANDREW", "engine": "edge", "note": "American male — warm, very natural"},
+    {"id": "en-US-BrianMultilingualNeural",  "label": "BRIAN",  "engine": "edge", "note": "American male — easy, conversational"},
+    {"id": "en-AU-WilliamMultilingualNeural", "label": "WILL", "engine": "edge", "note": "Australian male — relaxed, natural"},
+    {"id": "en-US-AvaMultilingualNeural",    "label": "AVA",    "engine": "edge", "note": "American female — bright, natural"},
+    {"id": "en-US-EmmaMultilingualNeural",   "label": "EMMA",   "engine": "edge", "note": "American female — friendly, clear"},
+    {"id": "en-GB-SoniaNeural",   "label": "SONIA",  "engine": "edge", "note": "British female — crisp, composed"},
+    # --- premium: OpenAI gpt-4o-mini-tts, uses an OpenAI key you've added ---
+    {"id": "openai:fable",  "label": "FABLE",  "engine": "openai", "note": "British storyteller — the most Jarvis"},
+    {"id": "openai:onyx",   "label": "ONYX",   "engine": "openai", "note": "Deep, authoritative male"},
+    {"id": "openai:ash",    "label": "ASH",    "engine": "openai", "note": "Clear, conversational male"},
+    {"id": "openai:ballad", "label": "BALLAD", "engine": "openai", "note": "Soft, expressive male"},
+    {"id": "openai:coral",  "label": "CORAL",  "engine": "openai", "note": "Warm, friendly female"},
+    {"id": "openai:sage",   "label": "SAGE",   "engine": "openai", "note": "Calm, thoughtful female"},
+    # --- studio: ElevenLabs, needs an ElevenLabs key ---
+    {"id": "eleven:JBFqnCBsd6RMkjVDRZzb", "label": "GEORGE", "engine": "elevenlabs", "note": "Warm British narrator"},
+    {"id": "eleven:onwK4e9ZLuTAKqWW03F9", "label": "DANIEL", "engine": "elevenlabs", "note": "Deep British, broadcast-grade"},
+    {"id": "eleven:nPczCjzI2devNBz1zQrb", "label": "BRIAN+", "engine": "elevenlabs", "note": "Deep, resonant American"},
+    {"id": "eleven:IKne3meq5aSn9XLyUdCD", "label": "CHARLIE", "engine": "elevenlabs", "note": "Natural, casual Australian"},
+    {"id": "eleven:Xb7hH8MSUJpSbSDYk0k2", "label": "ALICE", "engine": "elevenlabs", "note": "Confident British female"},
 ]
+OPENAI_TTS_MODEL = "gpt-4o-mini-tts"
 EDGE_TTS_VOICE_HINDI = "hi-IN-MadhurNeural"  # used automatically in Hindi mode
 
 # Slightly slower and slightly lower-pitched than default — pulls the

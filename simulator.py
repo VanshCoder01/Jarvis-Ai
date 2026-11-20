@@ -94,9 +94,7 @@ def is_enabled() -> bool:
 
 
 def set_enabled(enabled: bool) -> str:
-    data = memory.load()
-    data["simulation"] = bool(enabled)
-    memory.save(data)
+    memory.update(simulation=bool(enabled))
     return "Simulation mode engaged." if enabled else "Simulation mode disengaged."
 
 

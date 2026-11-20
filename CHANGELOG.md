@@ -1,5 +1,65 @@
 # Changelog
 
+## [1.09] — 2026-11-20
+
+### Added
+- **Run a free model on your own PC.** Setup (and settings) can now read your
+  graphics card, RAM and disk, recommend the best Qwen 2.5 model that will run
+  well, install Ollama if needed and download the model with live progress
+  (`local_ai.py`). Refused in simulation mode; only listed models can be chosen.
+- **Think with Claude Code or Antigravity.** Add `claude-code` or `antigravity`
+  (optionally `:<model>`) as a key, or press CONNECT in settings, and Jarvis
+  uses your existing CLI sign-in (`cli_brains.py`). They only decide; Jarvis
+  acts. Claude Code runs with no tools, MCP, settings or session; Antigravity
+  in sandboxed plan mode without auto-approval; both in an empty folder.
+- **Much better voices.** 19 voices in three tiers: free Microsoft neural
+  (now including the more natural Multilingual voices), premium OpenAI
+  `gpt-4o-mini-tts` voices directed to speak like a composed British butler,
+  and studio ElevenLabs voices. Preview any voice before choosing it. A failing
+  premium voice falls back to the free one instead of going silent.
+- **Understands people like a person would.** The prompt now teaches it to
+  read through speech-recognition mistakes, slang and Hinglish, indirect
+  requests ("it's too bright"), corrections and mood; it knows the current date
+  and time; it remembers 16 exchanges instead of 6, along with what it actually
+  did each time, so "close it", "louder" and "the other one" work. Reopening a
+  chat session, or restarting Jarvis, picks the conversation back up.
+- **A proper installer.** `build.bat` tests, builds a self-contained
+  `Jarvis.exe` (no Python needed) and an Inno Setup installer: per-user by
+  default, optional desktop shortcut and start-with-Windows, closes a running
+  Jarvis before upgrading, and asks on uninstall whether to keep your data.
+  GitHub Actions builds it on every push and attaches it to tagged releases.
+- **Single instance.** Launching Jarvis while it's already running reopens
+  the window instead of failing on the busy port.
+
+### Changed
+- **Front end redesigned.** A real type scale (body text is 14px, not 9–12px),
+  Inter for text with JetBrains Mono for numbers, higher-contrast labels,
+  rounded surfaces, chat bubbles, a single composer pill, a grouped voice
+  picker and a clearer setup screen. All three themes carry over.
+- Autopilot has its own panel behind the header's pointer button.
+
+### Removed
+- Code mode and its mascot, Spark (`agent.py`), and the multi-agent room
+  (`agents.py`), with their routes and UI.
+- The old script-based installers (`build_installer.bat`,
+  `build_installer_exe.bat`, `build_setup.bat`, `JarvisInstaller.py`,
+  `jarvis_installer.iss`, `Jarvis Setup.zip`), replaced by `build.bat`.
+
+### Fixed
+- **Security: shell injection.** Opening URLs and apps, and checking whether a
+  tool is installed, pasted model-chosen text into shell command lines. Since
+  the model reads email and the screen, crafted text could have run commands.
+  Nothing goes through a shell now, and only http(s) links are opened.
+- **API keys and memory could be wiped.** Saves truncated the file before
+  writing it while other requests read it on other threads; a read at the
+  wrong moment fell back to defaults and the next save wrote them back.
+  Writes are now atomic and locked, and a corrupt file is kept aside instead
+  of overwritten.
+- "Forget everything about me" also deleted your API keys. It now forgets you
+  and keeps Jarvis's keys and settings.
+- Two identical stop buttons appeared side by side while Jarvis was speaking.
+- The prompt addressed every user by the original author's name.
+
 ## [1.08] — 2026-11-11
 
 ### Added

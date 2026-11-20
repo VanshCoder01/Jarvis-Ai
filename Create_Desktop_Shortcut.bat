@@ -21,7 +21,7 @@ if not defined PYW (
 )
 
 if not defined PYW (
-    echo Python not found. Run build_installer.bat first - it installs Python for you.
+    echo Python not found. Install Python 3.10+ from python.org first, or use the installer from Releases.
     pause
     exit /b 1
 )
