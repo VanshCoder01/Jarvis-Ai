@@ -8,7 +8,7 @@ Talk to it, type to it, or hand it a goal and watch it work the mouse and keyboa
 
 ![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%20%2F%2011-0078D6)
-![Version](https://img.shields.io/badge/version-1.08-6fe9f5)
+![Version](https://img.shields.io/badge/version-1.09-6fe9f5)
 ![Runs locally](https://img.shields.io/badge/server-127.0.0.1%20only-2ea44f)
 
 ![Jarvis running in simulation mode](docs/simulation.png)
@@ -19,13 +19,13 @@ Talk to it, type to it, or hand it a goal and watch it work the mouse and keyboa
 
 | | |
 |---|---|
-| **Voice assistant** | Say "Jarvis" and talk. Neural text-to-speech replies, English or Hindi, with a composed, dry, British personality. |
+| **Voice assistant** | Say "Jarvis" and talk like you would to a person — it copes with misheard words, slang, Hinglish, follow-ups ("close it", "louder") and indirect requests ("it's too bright"). Replies in a composed, dry, British personality. |
+| **Voices** | 19 voices: free Microsoft neural voices, premium OpenAI voices directed to sound like a person, and studio-grade ElevenLabs voices. Preview any of them in settings. |
 | **PC control** | Opens and closes apps, websites and folders, controls media, volume, brightness and windows, takes screenshots, reads the screen, locks / sleeps / shuts down. |
 | **Autopilot** | Give it a goal. It looks at the screen, moves the pointer, clicks and types — step by step, like a person at the keyboard. |
-| **Code mode** | A coding agent (and its mascot, Spark) that builds and edits files inside one project folder, asking before it runs any command. |
 | **Simulation mode** | A virtual PC to try all of it on safely. Nothing touches your real machine, and it needs no API key. |
-| **Any brain** | Gemini, OpenAI, Anthropic, OpenRouter or a local Ollama model. Add several keys and it falls back automatically. |
-| **Extras** | Image generation, Gmail read + draft (never send), long-term memory, chat sessions, a multi-agent discussion room, file attachments. |
+| **Any brain** | Gemini, OpenAI, Anthropic or OpenRouter, your **Claude Code or Antigravity** sign-in — or **a free model on your own PC**: setup checks your hardware, recommends the best model it can run, and installs it for you. Add several keys and it falls back automatically. |
+| **Extras** | Image generation, Gmail read + draft (never send), long-term memory, chat sessions you can pick back up, file attachments. |
 
 Everything runs on your own PC. The interface is a local page served to its own
 app window on `127.0.0.1`; the only things that leave the machine are the calls
@@ -33,18 +33,28 @@ to the AI provider you chose and the text-to-speech request.
 
 ## Quick start
 
+**Easiest:** download `JarvisSetup-<version>.exe` from
+[Releases](https://github.com/VanshCoder01/Jarvis-Ai/releases) and run it. No
+Python needed. It installs for just you (no admin prompt) with a Start Menu
+entry, an optional desktop shortcut and an optional start-with-Windows, and
+uninstalls cleanly from Settings > Apps.
+
+On first run Jarvis asks how it should think:
+
+- **Paste an API key** (Gemini has a free tier), or
+- **Run a free model on this PC** — it reads your graphics card, memory and
+  disk, recommends the best model that will run well, then installs Ollama and
+  downloads the model with a progress bar, or
+- **Try simulation** — no key, nothing touches your real PC.
+
+**From source:**
+
 ```
 pip install -r requirements.txt
 python main.py
 ```
 
-or double-click **`run.bat`**. A window opens. On first run it asks for an API
-key and your name — or press **TRY SIMULATION** and skip the key entirely.
-
-To install it like a normal program (Start Menu entry, desktop shortcut,
-uninstaller), run `build_installer.bat` once — see
-[Building a real .exe / installer](#building-a-real-exe--installer). To have it
-start with Windows, switch on **LAUNCH AT STARTUP** in settings.
+or double-click **`run.bat`**.
 
 ## Simulation mode
 
@@ -75,7 +85,7 @@ there" shows the mode.
 
 ## Autopilot
 
-Open code mode (the `</>` button), pick the **AUTOPILOT** tab, and describe a
+Click the pointer button in the header and describe a
 goal: *"open Notepad and write a haiku about rain"*, *"find the Wi-Fi settings
 page"*. Jarvis minimises its own window, then loops: take a screenshot, send it
 to the model, perform the one action that comes back (click, double-click,
@@ -96,27 +106,72 @@ in `config.py` can; most small local Ollama models cannot. How well it does
 depends heavily on the model — expect it to be slower than you, and to miss
 sometimes. Watch it the first few times.
 
-## Code mode
-
-![Code mode with Spark](docs/code-mode.png)
-
-The **CODE** tab is a coding agent restricted to one project folder you choose.
-Describe a task and it works in visible steps — list, read, write — with
-each one logged as it happens. Shell commands are never run on their own: each
-one is shown to you first with APPROVE / DENY. It refuses a drive root, your
-whole user folder, or anything under Windows as the project folder, and it
-cannot read or write outside the folder you gave it. Follow-up instructions
-continue the same conversation; NEW starts fresh.
-
-In simulation mode it still reads files, but writes and commands become dry
-runs.
-
 ## Voice
 
-Replies use Microsoft's neural voices through edge-tts (free, no key). Eight to
-choose from in settings, plus **VOICE FX**: CLEAN leaves the voice alone, COMMS
-adds presence, a faint doubled shimmer and a small room, DEEP drops it lower
-and slower. The ring around the orb follows the real audio as it speaks.
+Pick a voice in settings and press ▶ to hear it before you switch.
+
+| Tier | Voices | Needs |
+|---|---|---|
+| **Free** | Ryan, Thomas, Andrew, Brian, Will, Ava, Emma, Sonia (Microsoft neural, via edge-tts) | nothing |
+| **Premium** | Fable, Onyx, Ash, Ballad, Coral, Sage (OpenAI `gpt-4o-mini-tts`) | an OpenAI key in your key list |
+| **Studio** | George, Daniel, Brian+, Charlie, Alice (ElevenLabs) | an ElevenLabs key, pasted under VOICE |
+
+Premium voices are given a written direction for *how* to speak — a composed,
+quietly witty British butler, livelier in funny mode, low and focused in
+serious mode, relaxed Hinglish in Hindi mode — which is what makes them sound
+like a person rather than an announcer. If a premium voice fails (no credit,
+offline) Jarvis falls back to the free voice instead of going silent.
+
+**VOICE FX** colours whichever voice you pick: CLEAN, COMMS (presence, a faint
+doubled shimmer, a small room) or DEEP. The ring around the orb follows the
+real audio as it speaks.
+
+## Run it locally, free
+
+Choose **NO KEY? RUN A FREE MODEL ON THIS PC** during setup, or
+**+ RUN A LOCAL MODEL ON THIS PC** in settings later. Jarvis:
+
+1. reads your graphics card's memory, your RAM and free disk space;
+2. recommends a model — Qwen 2.5 in 32B, 14B, 7B, 3B or 1.5B, the biggest that
+   runs comfortably (a 8 GB card gets 7B; a PC without a graphics card is capped
+   at 7B because the CPU gets too slow beyond that) and marks the rest as fits,
+   slow here, too big or no disk space;
+3. installs [Ollama](https://ollama.com) if it isn't there (winget, or the
+   official installer as a fallback), starts it, and downloads the model with
+   live progress;
+4. adds it as the key `ollama:<model>`, so it falls back to or from your other
+   keys like any provider.
+
+Everything you say then stays on your PC. Autopilot still needs a model that
+can see the screen, so keep a hosted key for that.
+
+## Think with Claude Code or Antigravity
+
+Already signed in to [Claude Code](https://claude.com/claude-code) or Google
+Antigravity's CLI (`agy`)? Jarvis can think with them instead of an API key,
+using your existing subscription. In settings press **+ CONNECT CLAUDE CODE**
+or **+ CONNECT ANTIGRAVITY** (the setup screen offers them too when they're
+installed), or add the key by hand:
+
+| Key | What it uses |
+|---|---|
+| `claude-code` | Claude Code, model `sonnet` (~3–5 s a reply) |
+| `claude-code:opus`, `claude-code:haiku` | any model alias or id Claude Code accepts |
+| `antigravity` | Antigravity, `gemini-3.8-flash-low` (~10–20 s a reply) |
+| `antigravity:<model>` | any id from `agy models` |
+
+They sit in the key list with everything else, so put the one you trust most
+first and the rest are fallbacks.
+
+Both CLIs are agents that can run commands and edit files, and what Jarvis
+sends them can include email and screen text someone else wrote. So they only
+ever *decide*; Jarvis carries out the action. Claude Code runs with no tools at
+all, no MCP servers, no user settings or hooks and no saved session, with
+Jarvis's own system prompt instead of Claude Code's, which also keeps each call
+to about 1–2k tokens instead of about 200k. Antigravity runs in plan mode with
+`--sandbox`, and never with `--dangerously-skip-permissions`, so any tool it
+reaches for is denied. Both run in an empty temporary folder. Neither looks at
+images, so screen reading passes to the next key.
 
 ## Choosing a model
 
@@ -296,16 +351,10 @@ Worth being upfront about the mechanism: this only runs locally for one
 person, so there's no real identity check happening — "respect Vansh" in
 practice just means "go easier on whoever's actually using this."
 
-## Voice
-Replies use Microsoft's edge-tts neural voices (free, no key) instead of the
-robotic Windows default, tuned slightly slower and lower (`EDGE_TTS_RATE` /
-`EDGE_TTS_PITCH` in `config.py`) for a more measured delivery. **On the movie
-JARVIS voice specifically**: that's Paul Bettany's copyrighted voice
-performance for Disney/Marvel — not something available through any free TTS
-engine, and not something to clone even if it were technically possible.
-`en-GB-RyanNeural` (default) and `en-GB-ThomasNeural` are the closest
-legitimate British-male options; preview both at https://tts.travisvn.com
-and swap `EDGE_TTS_VOICE` in `config.py` if you prefer the other.
+## About the movie voice
+Paul Bettany's JARVIS performance is copyrighted, and none of these voices
+imitate it. Fable (premium) and George or Daniel (studio) are the closest
+legitimate British options.
 
 ## Language and personality
 - **English/Hindi**: say "switch to Hindi" / "switch to English," or use the
@@ -343,25 +392,25 @@ Your API key, name, and memory live in `%APPDATA%\Jarvis\jarvis_memory.json`
 — not next to the script. This matters once this runs as a packaged .exe (a
 script's own folder can be read-only, e.g. under Program Files) and is just
 the correct place for per-user app data regardless. Delete that file, or say
-"forget everything about me," for a clean slate. If Jarvis ever crashes with
+"forget everything about me" to wipe what it knows about you (your keys and settings are kept). If Jarvis ever crashes with
 no console visible, check `%APPDATA%\Jarvis\crash_log.txt`.
 
-## Building a real .exe / installer
+## Building the installer
 ```
-build_installer.bat
+build.bat
 ```
-Run this once, on your own Windows PC (it needs to actually compile there —
-I can't hand you a working .exe from this sandbox, only the tooling to build
-one correctly yourself). It:
-1. Installs PyInstaller if needed and bundles everything into a single
-   `dist\Jarvis.exe` — no console window, no visible Python.
-2. If you have [Inno Setup](https://jrsoftware.org/isdl.php) (free) installed,
-   also builds `installer_output\JarvisSetup.exe` — a real installer with
-   Start Menu and Desktop shortcuts and a proper uninstaller.
+One command, on Windows. It creates an isolated build environment, installs
+the dependencies and PyInstaller, **runs the tests (and stops if any fail)**,
+builds `dist\Jarvis\Jarvis.exe`, installs Inno Setup with winget if needed, and
+compiles `installer_output\JarvisSetup-<version>.exe`, with the version taken
+from `config.py`.
 
-Without Inno Setup, step 1 alone already gives you a real, working,
-double-clickable app — step 2 is the extra "looks like a downloaded,
-installed program" polish.
+The same script runs on GitHub Actions for every push
+(`.github/workflows/build.yml`). Pushing a tag like `v1.09` attaches the
+installer to that release automatically.
+
+The installer closes a running Jarvis before upgrading it, and on uninstall it
+asks whether to keep your keys, memory and chat history in `%APPDATA%\Jarvis`.
 
 ## Customizing
 - **Add/fix an app**: edit `APP_PATHS` in `config.py` — but you often don't

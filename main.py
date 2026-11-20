@@ -95,7 +95,29 @@ def _wait_for_server(url: str, timeout: float = 20.0) -> bool:
     return False
 
 
+_MUTEX_NAME = "JarvisAssistantSingleInstance"   # also named in installer/jarvis.iss (AppMutex)
+
+
+def _already_running() -> bool:
+    """One Jarvis per user. The packaged app has no console, so closing the
+    window leaves the server running; launching again should just bring the
+    window back, not crash on a port that's already taken. The installer
+    also looks for this mutex to close Jarvis before upgrading it."""
+    try:
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        kernel32.CreateMutexW.restype = ctypes.c_void_p
+        handle = kernel32.CreateMutexW(None, False, _MUTEX_NAME)
+        globals()["_mutex_handle"] = handle      # keep it alive for the process lifetime
+        return bool(handle) and kernel32.GetLastError() == 183   # ERROR_ALREADY_EXISTS
+    except Exception:
+        return False
+
+
 if __name__ == "__main__":
+    if _already_running():
+        _open_window(f"http://{config.SERVER_HOST}:{config.SERVER_PORT}")
+        sys.exit(0)
     try:
         server_thread = threading.Thread(target=server.run, daemon=True)
         server_thread.start()

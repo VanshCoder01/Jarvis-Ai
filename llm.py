@@ -44,6 +44,9 @@ def detect_provider(api_key: str) -> str:
     key = (api_key or "").strip()
     if key.lower().startswith("ollama"):
         return "ollama"
+    import cli_brains
+    if cli_brains.is_cli_key(key):
+        return cli_brains.parse_key(key)[0]          # "claude-code" / "antigravity"
     if key.startswith("sk-ant-"):
         return "anthropic"
     if key.startswith("AIza"):
@@ -574,7 +577,14 @@ def call_ollama(api_key, system_instruction, contents, schema, models, image=Non
     return None, last_error
 
 
-CALLERS = {"gemini": call_gemini, "openai": call_openai, "anthropic": call_anthropic, "openrouter": call_openai, "ollama": call_ollama}
+def _call_cli(*args, **kwargs):
+    import cli_brains
+    return cli_brains.call(*args, **kwargs)
+
+
+CALLERS = {"gemini": call_gemini, "openai": call_openai, "anthropic": call_anthropic, "openrouter": call_openai,
+           "ollama": call_ollama, "claude-code": _call_cli, "antigravity": _call_cli}
+_LOCAL_PROVIDERS = ("ollama", "claude-code", "antigravity")   # no network retry, never "sticky" as a backup
 
 
 def _is_key_dead_error(e) -> bool:
@@ -619,6 +629,8 @@ def call(system_instruction, contents, schema, models_by_provider=None, image=No
         provider = detect_provider(api_key)
         if provider == "ollama":
             models = _ollama_preferred(models_by_provider)
+        elif provider in _LOCAL_PROVIDERS:
+            models = []                                 # the key names the model, or the CLI's default
         else:
             models = (models_by_provider or config.PROVIDER_MODELS).get(
                 provider, config.PROVIDER_MODELS["gemini"]
@@ -630,7 +642,7 @@ def call(system_instruction, contents, schema, models_by_provider=None, image=No
                 models = [override] + [m for m in models if m != override]
         last_call["model"] = ""
         data, error = CALLERS[provider](api_key, system_instruction, contents, schema, models, image=image)
-        if data is None and provider != "ollama" and _is_transient_network_error(error):
+        if data is None and provider not in _LOCAL_PROVIDERS and _is_transient_network_error(error):
             # Often a stale pooled connection that the server already closed
             # (WinError 10054). Drop the cached client and try once more.
             _clients.clear()
@@ -641,7 +653,7 @@ def call(system_instruction, contents, schema, models_by_provider=None, image=No
             # Don't make a *backup* Ollama sticky: if a cloud key was only
             # rate-limited, the next request should try it again rather than
             # staying on the local model forever.
-            if idx != start and provider != "ollama":
+            if idx != start and provider not in _LOCAL_PROVIDERS:
                 # This key worked and the previous one didn't — start here
                 # next time instead of walking the dead key again.
                 memory.set_active_key_index(idx)
@@ -650,6 +662,9 @@ def call(system_instruction, contents, schema, models_by_provider=None, image=No
         last_error = error
         # Ollama being down / out of models just means "try the next key".
         if isinstance(error, OllamaUnavailable):
+            continue
+        import cli_brains
+        if isinstance(error, cli_brains.CLIUnavailable):
             continue
         # Every model for this key's provider is retired -> another key
         # (maybe another provider) may still work.
@@ -673,81 +688,3 @@ def describe_last_call() -> str:
     p = last_call.get("provider", "")
     m = last_call.get("model", "")
     return f"{p} \u00b7 {m}" if (p and m) else p
-
-
-
-# ---------- plain-text calls (for the multi-agent room) ----------
-# The main call() path is built around JSON-schema structured output, which is
-# right for actions but wrong for free-form discussion. This is a simpler
-# sibling: one system instruction, one user message, plain text back.
-def call_text(api_key, system_instruction, user_content, model=None):
-    """Returns (text, error). Never raises. Routes by the same provider
-    detection as everything else; OpenRouter and OpenAI share the OpenAI SDK."""
-    provider = detect_provider(api_key)
-    try:
-        if provider == "anthropic":
-            client = _anthropic_client(api_key)
-            mdl = model or config.PROVIDER_MODELS.get("anthropic", ["claude-haiku-4-5-20251001"])[0]
-            resp = client.messages.create(
-                model=mdl, max_tokens=1024,
-                system=system_instruction,
-                messages=[{"role": "user", "content": user_content}],
-            )
-            parts = [b.text for b in resp.content if getattr(b, "type", "") == "text"]
-            return ("\n".join(parts).strip(), None)
-
-        if provider == "ollama":
-            base, explicit = parse_ollama_key(api_key)
-            installed = ollama_installed_models(base)
-            # An agent's saved model may belong to another provider; only
-            # honour it if Ollama actually has it.
-            wanted = next((n for n in installed if model and _name_matches(model, n)), None)
-            mdl = wanted or _ollama_pick_models(base, explicit, _ollama_preferred())[0]
-            resp = _ollama_post_chat(base, {
-                "model": mdl, "stream": False, "think": False,
-                "keep_alive": _ollama_cfg("OLLAMA_KEEP_ALIVE", "30m"),
-                "options": {"temperature": _ollama_cfg("OLLAMA_TEMPERATURE", 0.7)},
-                "messages": [{"role": "system", "content": system_instruction},
-                             {"role": "user", "content": user_content}],
-            }, _ollama_cfg("OLLAMA_TIMEOUT", 180))
-            return (_strip_think((resp.get("message") or {}).get("content", "")), None)
-
-        if provider == "gemini":
-            from google.genai import types
-            client = _gemini_client(api_key)
-            wanted = [model] if model else []
-            listed = list(config.PROVIDER_MODELS.get("gemini", []))
-            candidates = wanted + [m for m in listed + _GEMINI_BUILTIN_FALLBACKS if m not in wanted]
-            last_err = None
-            for mdl in candidates:
-                if mdl in _dead_models:
-                    continue
-                try:
-                    resp = client.models.generate_content(
-                        model=mdl, contents=[{"role": "user", "parts": [{"text": user_content}]}],
-                        config=types.GenerateContentConfig(system_instruction=system_instruction, temperature=0.9),
-                    )
-                    return ((resp.text or "").strip(), None)
-                except Exception as e:
-                    last_err = e
-                    if _skip_to_next_model(e, mdl):
-                        continue
-                    raise
-            return ("", str(last_err or _no_model_error("Gemini")))
-
-        # openai + openrouter both use the OpenAI SDK
-        client = _openai_client(api_key)
-        mdl = model or config.PROVIDER_MODELS.get(provider, ["gpt-4o-mini"])[0]
-        resp = client.chat.completions.create(
-            model=mdl,
-            messages=[
-                {"role": "system", "content": system_instruction},
-                {"role": "user", "content": user_content},
-            ],
-            temperature=0.9,
-        )
-        return (resp.choices[0].message.content.strip(), None)
-    except _OllamaHTTPError as e:
-        return ("", f"Ollama: {e.message}")
-    except Exception as e:
-        return ("", str(e))

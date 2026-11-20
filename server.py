@@ -3,21 +3,19 @@ server.py — the bridge between the web UI (index.html) and the Python side
 (the AI brain, PC control, TTS, memory). Runs locally only — SERVER_HOST is
 127.0.0.1, so nothing outside this PC can reach it.
 """
-import json
 import os
 import sys
-import threading
 
 from flask import Flask, jsonify, request, send_file
 
-import agent as code_agent
-import agents
 import autopilot
 import brain
+import cli_brains
 import config
 import history
 import image_gen
 import llm
+import local_ai
 import memory
 import pc_control as pc
 import simulator
@@ -68,6 +66,12 @@ if _saved_keys:
 elif config.API_KEY:
     memory.set_api_keys([config.API_KEY])
 
+# Carry on the conversation from where it was left last time.
+try:
+    brain.load_session(history.session_entries(history._load_sessions().get("active", "")))
+except Exception:
+    pass
+
 # Supabase (optional) — only activates if config.py actually has a URL/key
 # set. Everything else in the app works fine without this configured at all.
 _sb = None
@@ -117,6 +121,7 @@ def _boot_payload(data: dict) -> dict:
         "idle_chatter": data.get("idle_chatter", True),
         "voice": data.get("voice", "") or config.EDGE_TTS_VOICE,
         "voice_options": getattr(config, "VOICE_OPTIONS", []),
+        "voice_engines": tts.available_engines(),
         "voice_fx": data.get("voice_fx", "comms"),
         "provider": summary["active"],
         "providers": summary["providers"],
@@ -125,7 +130,6 @@ def _boot_payload(data: dict) -> dict:
         "email": data.get("user_email", ""),
         "version": getattr(config, "VERSION", ""),
         "model_override": data.get("model_override", ""),
-        "agent_root": _default_agent_root(),
         "launch_at_startup": startup.is_enabled(),
         "simulation": simulating,
         "sim_state": simulator.snapshot() if simulating else None,
@@ -145,6 +149,7 @@ def api_init():
                          "idle_chatter": data.get("idle_chatter", True),
                          "voice": data.get("voice", "") or config.EDGE_TTS_VOICE,
                          "voice_options": getattr(config, "VOICE_OPTIONS", []),
+                         "voice_engines": tts.available_engines(),
                          "voice_fx": data.get("voice_fx", "comms"),
                          "provider": "", "key_count": 0, "providers": [],
                          "login_available": _sb is not None, "email": "",
@@ -166,6 +171,9 @@ def _apply_keys(keys: list):
 
 def _mask_key(key: str) -> str:
     key = key or ""
+    # "ollama:qwen2.5:7b" / "claude-code:opus" aren't secrets -- show them as they are
+    if key.lower().startswith("ollama") or cli_brains.is_cli_key(key):
+        return key
     if len(key) <= 8:
         return "*" * len(key)
     return f"{key[:4]}…{key[-4:]}"
@@ -244,11 +252,10 @@ def api_setup():
 
     if keys:
         _apply_keys(keys)
-    data = memory.load()
-    data["name"] = name
+    fields = {"name": name}
     if want_simulation:
-        data["simulation"] = True
-    memory.save(data)
+        fields["simulation"] = True
+    memory.update(**fields)
     return jsonify({"ok": True, **_boot_payload(memory.load())})
 
 
@@ -351,8 +358,9 @@ def api_session_action():
         brain._clear_history()
         return jsonify({"ok": True, "active": new_id, "entries": []})
     if act == "select" and history.set_active(sid):
-        brain._clear_history()
-        return jsonify({"ok": True, "active": sid, "entries": history.session_entries(sid)})
+        entries = history.session_entries(sid)
+        brain.load_session(entries)
+        return jsonify({"ok": True, "active": sid, "entries": entries})
     if act == "pin":
         return jsonify({"ok": True, "pinned": history.toggle_pin(sid)})
     if act == "delete":
@@ -361,184 +369,43 @@ def api_session_action():
     return jsonify({"ok": False, "error": "unknown action"}), 400
 
 
-@app.route("/api/agents", methods=["GET", "POST", "DELETE"])
-def api_agents():
-    if request.method == "GET":
-        return jsonify({"agents": agents.list_agents()})
+# ---------- local models (local_ai.py) ----------
+# Setup's "run locally" path: recommend a model for this PC, then install
+# Ollama + download it on a background thread while the UI polls /status.
+
+# ---------- AI coding CLIs as brains (cli_brains.py) ----------
+@app.route("/api/cli/status")
+def api_cli_status():
+    keys = [k.lower() for k in memory.get_api_keys()]
+    st = cli_brains.status()
+    for name, info in st.items():
+        info["connected"] = any(k == name or k.startswith(name + ":") for k in keys)
+    return jsonify(st)
+
+
+@app.route("/api/local/recommend")
+def api_local_recommend():
+    try:
+        return jsonify({"ok": True, **local_ai.recommend()})
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"Couldn't read this PC's hardware: {e}"}), 500
+
+
+@app.route("/api/local/install", methods=["POST"])
+def api_local_install():
     body = request.get_json(force=True, silent=True) or {}
-    if request.method == "DELETE":
-        return jsonify({"ok": agents.delete_agent(body.get("id", ""))})
-    return jsonify({"ok": True, "agent": agents.save_agent(body)})
+    if simulator.is_enabled():
+        return jsonify({"ok": False, "error": "Installing a model changes your real PC, and simulation "
+                                              "mode promises nothing real happens. Switch simulation off first."}), 400
+    try:
+        return jsonify({"ok": True, **local_ai.start(str(body.get("model", "")))})
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
 
 
-@app.route("/api/agent_models")
-def api_agent_models():
-    # The models the current key's provider offers, for the agent editor dropdown.
-    provider = llm.detect_provider(config.API_KEY)
-    return jsonify({"models": config.PROVIDER_MODELS.get(provider, [])})
-
-
-@app.route("/api/agents/run", methods=["POST"])
-def api_agents_run():
-    body = request.get_json(force=True, silent=True) or {}
-    transcript = agents.run_discussion(
-        task=body.get("task", ""),
-        agent_ids=body.get("agent_ids", []),
-        rounds=body.get("rounds", 2),
-        lead_id=body.get("lead_id", ""),
-    )
-    return jsonify({"transcript": transcript})
-
-
-# ---------- code mode (agent.py) ----------
-# One session at a time, held in memory. The browser drives the loop: it asks
-# for one step, shows it, and asks for the next -- so every action is visible
-# as it happens and a stop request takes effect between steps.
-_agent_lock = threading.Lock()
-_agent = {"root": "", "goal": "", "transcript": [], "steps": 0, "pending": None, "done": True}
-
-
-def _default_agent_root() -> str:
-    return os.path.join(os.path.expanduser("~"), "Desktop", "JarvisProjects", "scratch")
-
-
-def _resolve_agent_root(raw: str):
-    """Returns (absolute_path, error). Refuses folders that are far too broad
-    to hand to an agent that can write files -- a drive root, the user's
-    whole home folder, or anything under Windows itself."""
-    raw = (raw or "").strip().strip('"')
-    if not raw:
-        return None, "Pick a project folder first."
-    root = os.path.abspath(os.path.expandvars(os.path.expanduser(raw)))
-    home = os.path.abspath(os.path.expanduser("~"))
-    windir = os.path.abspath(os.environ.get("WINDIR", r"C:\Windows"))
-    tail = os.path.splitdrive(root)[1].strip("\\/")
-    if not tail:
-        return None, "That's an entire drive. Pick a specific project folder."
-    if os.path.normcase(root) == os.path.normcase(home):
-        return None, "That's your whole user folder. Pick a specific project folder inside it."
-    if os.path.normcase(root + os.sep).startswith(os.path.normcase(windir + os.sep)):
-        return None, "That's inside Windows. Pick a project folder somewhere else."
-    if os.path.isfile(root):
-        return None, "That's a file, not a folder."
-    if not os.path.isdir(root):
-        if simulator.is_enabled():
-            return None, "That folder doesn't exist, and simulation mode won't create it."
-        try:
-            os.makedirs(root, exist_ok=True)
-        except Exception as e:
-            return None, f"Couldn't create that folder: {e}"
-    return root, None
-
-
-def _agent_record(call: dict, result: str):
-    shown = {k: call.get(k, "") for k in ("tool", "path", "command", "message") if call.get(k)}
-    if call.get("tool") == "write_file":
-        shown["content"] = f"({len(call.get('content') or '')} chars written)"
-    _agent["transcript"].append({"role": "model", "text": json.dumps(shown)})
-    _agent["transcript"].append({"role": "user", "text": f"Result of {call.get('tool')}:\n{result}"})
-
-
-def _agent_reply(call: dict, result: str, **extra):
-    return jsonify({
-        "ok": True, "step": _agent["steps"], "max_steps": code_agent.MAX_STEPS,
-        "tool": call.get("tool", ""), "message": call.get("message", ""),
-        "path": call.get("path", ""), "command": call.get("command", ""),
-        "result": result, "needs_confirm": False, "done": _agent["done"],
-        "simulated": False, **extra,
-    })
-
-
-@app.route("/api/agent/start", methods=["POST"])
-def api_agent_start():
-    body = request.get_json(force=True, silent=True) or {}
-    goal = (body.get("goal") or "").strip()
-    if not goal:
-        return jsonify({"ok": False, "error": "Describe the task first."}), 400
-    if not memory.get_api_keys():
-        return jsonify({"ok": False, "error": "Code mode needs a real model \u2014 add an API key in settings. "
-                                              "The offline simulation core can't write code."}), 400
-    root, err = _resolve_agent_root(body.get("root"))
-    if err:
-        return jsonify({"ok": False, "error": err}), 400
-    with _agent_lock:
-        if body.get("continue") and _agent["root"] == root and _agent["transcript"]:
-            _agent["transcript"].append({"role": "user", "text": f"New instruction from the user: {goal}"})
-        else:
-            _agent.update({"root": root, "goal": goal, "transcript": []})
-        _agent.update({"steps": 0, "pending": None, "done": False})
-    return jsonify({"ok": True, "root": root, "max_steps": code_agent.MAX_STEPS,
-                    "simulated": simulator.is_enabled()})
-
-
-@app.route("/api/agent/step", methods=["POST"])
-def api_agent_step():
-    with _agent_lock:
-        if not _agent["root"] or _agent["done"]:
-            return jsonify({"ok": False, "error": "No task is running."}), 400
-        if _agent["pending"]:
-            return jsonify({"ok": False, "error": "A command is still waiting for your approval."}), 400
-        if _agent["steps"] >= code_agent.MAX_STEPS:
-            _agent["done"] = True
-            return jsonify({"ok": False, "error": f"Stopped at the {code_agent.MAX_STEPS}-step limit. "
-                                                  "Send another instruction to keep going."}), 400
-        try:
-            call = code_agent.next_step(_agent["root"], _agent["goal"], _agent["transcript"])
-        except code_agent.AgentError as e:
-            return jsonify({"ok": False, "error": str(e)}), 502
-        _agent["steps"] += 1
-        tool = call["tool"]
-        simulating = simulator.is_enabled()
-
-        if tool == "done":
-            _agent["done"] = True
-            _agent_record(call, "Task marked as finished.")
-            return _agent_reply(call, "")
-        if tool == "run_command":
-            if not (call.get("command") or "").strip():
-                result = "No command given."
-                _agent_record(call, result)
-                return _agent_reply(call, result)
-            _agent["pending"] = call           # nothing runs until /api/agent/confirm
-            return _agent_reply(call, "", needs_confirm=True, simulated=simulating)
-
-        simulated = False
-        try:
-            if tool == "read_file":
-                result = code_agent.read_file(_agent["root"], call.get("path", ""))
-            elif tool == "list_dir":
-                result = code_agent.list_dir(_agent["root"], call.get("path", ""))
-            elif simulating:
-                code_agent._safe_path(_agent["root"], call.get("path", ""))   # still enforce the boundary
-                result = (f"Simulation: would have written {len(call.get('content') or '')} chars to "
-                          f"{call.get('path', '')}. Nothing was saved.")
-                simulated = True
-            else:
-                result = code_agent.write_file(_agent["root"], call.get("path", ""), call.get("content", ""))
-        except code_agent.AgentError as e:
-            result = str(e)
-        _agent_record(call, result)
-        return _agent_reply(call, result, simulated=simulated)
-
-
-@app.route("/api/agent/confirm", methods=["POST"])
-def api_agent_confirm():
-    body = request.get_json(force=True, silent=True) or {}
-    with _agent_lock:
-        call = _agent["pending"]
-        if not call:
-            return jsonify({"ok": False, "error": "There's no command waiting for approval."}), 400
-        _agent["pending"] = None
-        simulated = False
-        if not body.get("approve"):
-            result = "The user declined to run this command."
-        elif simulator.is_enabled():
-            result = "Simulation: the command was approved but not executed."
-            simulated = True
-        else:
-            result = code_agent.run_command(_agent["root"], call.get("command", ""))
-        _agent_record(call, result)
-        return jsonify({"ok": True, "result": result, "simulated": simulated})
+@app.route("/api/local/status")
+def api_local_status():
+    return jsonify(local_ai.status())
 
 
 # ---------- autopilot (autopilot.py) ----------
@@ -591,36 +458,55 @@ def api_settings():
     if "profanity" in body:
         memory.set_profanity(body["profanity"])
     if "voice" in body:
-        memory.set_voice(body["voice"])
+        known = {v["id"] for v in getattr(config, "VOICE_OPTIONS", [])}
+        if body["voice"] in known:
+            memory.set_voice(body["voice"])
+    if "elevenlabs_key" in body:
+        memory.update(elevenlabs_key=str(body["elevenlabs_key"] or "").strip()[:200])
     if "theme" in body:
-        data = memory.load()
-        data["theme"] = body["theme"]
-        memory.save(data)
+        memory.update(theme=str(body["theme"])[:20])
     if "idle_chatter" in body:
         memory.set_idle_chatter(bool(body["idle_chatter"]))
     if "voice_fx" in body and body["voice_fx"] in ("off", "comms", "deep"):
-        data = memory.load()
-        data["voice_fx"] = body["voice_fx"]
-        memory.save(data)
+        memory.update(voice_fx=body["voice_fx"])
     if "launch_at_startup" in body:
         try:
             startup.set_enabled(bool(body["launch_at_startup"]))
         except OSError as e:
             return jsonify({"ok": False, "error": f"Windows wouldn't let me change that: {e}"}), 500
     if "model_override" in body:
-        data = memory.load()
-        data["model_override"] = str(body["model_override"] or "").strip()[:120]
-        memory.save(data)
+        memory.update(model_override=str(body["model_override"] or "").strip()[:120])
     if "simulation" in body:
         if not body["simulation"] and not memory.get_api_keys():
             return jsonify({"ok": False, "error": "Add an API key before leaving simulation \u2014 "
                                                   "without one there's no brain to run on."}), 400
         simulator.set_enabled(bool(body["simulation"]))
     # Never hand the stored API keys back to the page -- it has no use for them.
-    safe = {k: v for k, v in memory.load().items() if k not in ("api_key", "api_keys")}
-    safe.update({"ok": True, "simulation": simulator.is_enabled(), "sim_state": simulator.snapshot(),
+    safe = {k: v for k, v in memory.load().items() if k not in ("api_key", "api_keys", "elevenlabs_key")}
+    safe.update({"ok": True, "voice_engines": tts.available_engines(), "simulation": simulator.is_enabled(), "sim_state": simulator.snapshot(),
                  "launch_at_startup": startup.is_enabled()})
     return jsonify(safe)
+
+
+_PREVIEW_LINES = {
+    "en": "Good evening. All systems are running, and I've taken the liberty of tidying your desktop.",
+    "hi": "Namaste sir. Sab systems theek chal rahe hain, bataiye kya karna hai.",
+}
+
+
+@app.route("/api/voice/preview", methods=["POST"])
+def api_voice_preview():
+    """Speaks a sample line in a voice without switching to it."""
+    body = request.get_json(force=True, silent=True) or {}
+    voice = str(body.get("voice") or "")
+    if voice not in {v["id"] for v in getattr(config, "VOICE_OPTIONS", [])}:
+        return jsonify({"ok": False, "error": "Unknown voice."}), 400
+    tts.last_error = ""
+    line = _PREVIEW_LINES.get(memory.get_language(), _PREVIEW_LINES["en"])
+    audio = tts.speak_to_base64(line, voice)
+    fell_back = bool(tts.last_error) and tts.engine_of(voice) != "edge"
+    return jsonify({"ok": bool(audio), "audio": audio, "fell_back": fell_back,
+                    "error": tts.last_error if fell_back else ("" if audio else "Couldn't generate speech — are you online?")})
 
 
 @app.route("/api/idle_line")
@@ -672,9 +558,7 @@ def api_session():
     token = body.get("access_token", "")
     try:
         user = _sb.auth.get_user(token)
-        data = memory.load()
-        data["user_email"] = user.user.email
-        memory.save(data)
+        memory.update(user_email=user.user.email)
         return jsonify({"ok": True, "email": user.user.email})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 401
@@ -682,9 +566,7 @@ def api_session():
 
 @app.route("/api/logout", methods=["POST"])
 def api_logout():
-    data = memory.load()
-    data["user_email"] = ""
-    memory.save(data)
+    memory.update(user_email="")
     return jsonify({"ok": True})
 
 
